@@ -5,7 +5,7 @@
     let projectId = matches ? matches[1] : ""
     let testCaseId = null;
     let tampermonkeyTd = "_tampermonkeyTd"
-    let SERVICE_HOST = 'http://localhost:3000'
+    let SERVICE_HOST = 'http://aqa01-i01-abs01.int.rclabenv.com:3000'
 
     let rangDefault = getDateRange(-7)
     let traces = await fetchGraphqlData(projectId, rangDefault.start, rangDefault.end);
