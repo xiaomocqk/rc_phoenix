@@ -1,31 +1,79 @@
 (async function () {
     'use strict';
 
-    var matches = window.location.pathname.match(/^\/projects\/([^?&/]+)/)
-    var projectId = matches ? matches[1] : ""
-    var testCaseId = null;
-    var tampermonkeyTd = "$$_tampermonkeyTd"
-    var SERVICE_HOST = 'http://localhost:3000'
+    let matches = window.location.pathname.match(/^\/projects\/([^?&/]+)/)
+    let projectId = matches ? matches[1] : ""
+    let testCaseId = null;
+    let tampermonkeyTd = "_tampermonkeyTd"
+    let SERVICE_HOST = 'http://localhost:3000'
 
-    var json = await fetchGraphqlData(projectId)
-    var traces = json.data.project.rootSpans.edges
-    console.log(traces)
+    let rangDefault = getDateRange(-7)
+    let traces = await fetchGraphqlData(projectId, rangDefault.start, rangDefault.end);
 
-    var $table = await waitForTableTracesExisting(10)
-    var $tbody = $table.querySelector('tbody')
-    var $curTbodyTd = null
+    let $table = await waitForTableTracesExisting(10)
+    let $tbody = $table.querySelector('tbody')
+    let $curTbodyTd = null
     let dialogLabels = null
+
     appendColumn2thead('labels')
     appendColumn2tbody(traces)
+    document.addEventListener('click', onDateRangeChange(), { capture: true })
 
-    function fetchGraphqlData(projectId) {
-        var headers = new Headers();
+    function onDateRangeChange() {
+        let dateRange = {
+            "Last Day": -1,
+            "Last 7 Days": -7,
+            "Last Month": -30
+        }
+        let currentDateRange = "Last 7 Days"
+        return async function (e) {
+            const $menu = document.querySelector('.ac-menu')
+            if ($menu && $menu.contains(e.target)) {
+                let el = e.target
+                while (!el.classList.contains('ac-menu-item')) {
+                    el = el.parentNode
+                }
+                if (el.textContent === currentDateRange) {
+                    return
+                }
+                let selectedDateRangeText = el.textContent
+                currentDateRange = selectedDateRangeText
+                if (selectedDateRangeText === 'All Time') {
+                    let tomorrow = getDateRange(1).end
+                    traces = await fetchGraphqlData(projectId, '1970-12-31T16:00:00.000Z', tomorrow)
+                } else {
+                    const {start, end} = getDateRange(dateRange[selectedDateRangeText])
+                    traces = await fetchGraphqlData(projectId, start, end)
+                }
+
+                console.log('sleep 1s')
+                await sleep(1)
+                $table = document.querySelector('table')
+                $tbody = $table.querySelector('tbody')
+                appendColumn2tbody(traces)
+            }
+        }
+
+    }
+
+    function sleep(seconds) {
+        return new Promise(resolve => setTimeout(resolve, seconds * 1000))
+    }
+
+    function getDateRange(daysAgo) {
+        const end = new Date();
+        const start = new Date(end.getTime() + (daysAgo * 24 * 60 * 60 * 1000));
+        return {start: start.toISOString(), end: end.toISOString()}
+    }
+
+    function fetchGraphqlData(projectId, start, end) {
+        let headers = new Headers();
         headers.append("Content-Type", "application/json");
-        var graphql = JSON.stringify({
+        let graphql = JSON.stringify({
             query: "query ProjectPageQuery( $id: GlobalID!  $timeRange: TimeRange!) {  project: node(id: $id) {    __typename    ...SpansTable_spans    ...TracesTable_spans    ...ProjectPageHeader_stats    ...StreamToggle_data    __isNode: __typename    id  }}fragment ProjectPageHeader_stats on Project {  traceCount(timeRange: $timeRange)  tokenCountTotal(timeRange: $timeRange)  latencyMsP50: latencyMsQuantile(probability: 0.5, timeRange: $timeRange)  latencyMsP99: latencyMsQuantile(probability: 0.99, timeRange: $timeRange)  spanEvaluationNames  documentEvaluationNames  id}fragment SpanColumnSelector_evaluations on Project {  spanEvaluationNames}fragment SpansTable_spans on Project {  ...SpanColumnSelector_evaluations  spans(first: 100, sort: {col: startTime, dir: desc}, timeRange: $timeRange) {    edges {      span: node {        spanKind        name        metadata        statusCode        startTime        latencyMs        tokenCountTotal        tokenCountPrompt        tokenCountCompletion        context {          spanId          traceId        }        input {          value: truncatedValue        }        output {          value: truncatedValue        }        spanEvaluations {          name          label          score        }        documentRetrievalMetrics {          evaluationName          ndcg          precision          hit        }      }      cursor      node {        __typename      }    }    pageInfo {      endCursor      hasNextPage    }  }  id}fragment StreamToggle_data on Project {  streamingLastUpdatedAt  id}fragment TracesTable_spans on Project {  ...SpanColumnSelector_evaluations  rootSpans: spans(first: 100, sort: {col: startTime, dir: desc}, rootSpansOnly: true, timeRange: $timeRange) {    edges {      rootSpan: node {        spanKind        name        metadata        statusCode: propagatedStatusCode        startTime        latencyMs        cumulativeTokenCountTotal        cumulativeTokenCountPrompt        cumulativeTokenCountCompletion        parentId        input {          value: truncatedValue        }        output {          value: truncatedValue        }        context {          spanId          traceId        }        spanEvaluations {          name          label          score        }        documentRetrievalMetrics {          evaluationName          ndcg          precision          hit        }        descendants {          spanKind          name          statusCode: propagatedStatusCode          startTime          latencyMs          parentId          cumulativeTokenCountTotal: tokenCountTotal          cumulativeTokenCountPrompt: tokenCountPrompt          cumulativeTokenCountCompletion: tokenCountCompletion          input {            value          }          output {            value          }          context {            spanId            traceId          }          spanEvaluations {            name            label            score          }          documentRetrievalMetrics {            evaluationName            ndcg            precision            hit          }        }      }      cursor      node {        __typename      }    }    pageInfo {      endCursor      hasNextPage    }  }  id}",
-            variables: { "id": projectId, "timeRange": { "start": "2024-05-29T06:00:00.000Z", "end": "2025-06-05T06:00:00.000Z" } }
+            variables: { "id": projectId, "timeRange": { start, end } }
         })
-        var requestOptions = {
+        let requestOptions = {
             method: 'POST',
             headers,
             body: graphql,
@@ -34,7 +82,8 @@
 
         return fetch("/graphql", requestOptions)
             .then(response => response.json())
-            .catch(error => console.log(error));
+            .then(json => json.data.project.rootSpans.edges)
+            .catch(console.error);
     }
 
     function waitForTableTracesExisting(timeoutSeconds) {
@@ -44,9 +93,9 @@
             reject = rej;
         })
         let startTime = performance.now()
-        var $table = document.querySelector('table')
+        let $table = document.querySelector('table')
         let tid = setInterval(() => {
-            var isTimeout = performance.now() - startTime > timeoutSeconds * 1000
+            let isTimeout = performance.now() - startTime > timeoutSeconds * 1000
             if (isTimeout) {
                 clearInterval(tid)
                 return reject('[TIMEOUT] waitForTableExisting')
@@ -61,39 +110,60 @@
     }
 
     function appendColumn2thead(columnName) {
-        var $theadTr = $table.querySelector("thead > tr")
-        var $theadTdCloneNode = $theadTr.lastElementChild.cloneNode(true)
+        let $theadTr = $table.querySelector("thead > tr")
+        let $theadTdCloneNode = $theadTr.lastElementChild.cloneNode(true)
         $theadTdCloneNode.querySelector('div').innerText = columnName
         $theadTr.appendChild($theadTdCloneNode)
     }
 
     async function appendColumn2tbody(traces) {
-        var $tbodyTrAll = $tbody.querySelectorAll('tr')
+        if ($tbody.classList.contains('is-empty')) {
+            return
+        }
+        let $tbodyTrAll = $tbody.querySelectorAll('tr')
         let $dialog = null
+
+        $tbody.addEventListener('click', showDialog, { capture: true })
         for (let i = 0, rows = $tbodyTrAll.length; i < rows; i++) {
-            var $tr = $tbodyTrAll[i]
-            var $tdCloneNode = $tr.querySelector('td:nth-child(1)').cloneNode(false)
-            var name = $tr.querySelector('td:nth-child(2)').innerText
-            var metadataStr = traces.find(item => item.rootSpan.name === name).rootSpan.metadata
-            var metadata = JSON.parse(metadataStr)
-            var labels = JSON.parse(metadata.optional_labels)
+            let $tr = $tbodyTrAll[i]
+            let $tdCloneNode = $tr.querySelector('td:nth-child(1)').cloneNode(false)
+            let name = $tr.querySelector('td:nth-child(2)').innerText
+            /*let metadataStr = traces.find(item => item.rootSpan.name === name).rootSpan.metadata;
+            let metadata = JSON.parse(metadataStr)
+            let labels = JSON.parse(metadata.optional_labels)
+
+            metadata._labels = labels
+            testCaseId = metadata.test_case_id
+
+            let resp = await fetch(`${SERVICE_HOST}/jobRecords?id=${testCaseId}`).then(response => response.json());
+            debugger
+            dialogLabels = resp[0].metadatas ? resp[0].metadatas.human_labels : metadata._labels
+*/
+            dialogLabels = await getDialogLabels(name)
+            displaySelectedLabels($tdCloneNode, dialogLabels);
+            $tdCloneNode.classList.add(tampermonkeyTd)
+            if ($tr.querySelector('.' + tampermonkeyTd)) {
+                $tr.querySelector('.' + tampermonkeyTd).remove()
+            }
+            $tr.appendChild($tdCloneNode)
+        }
+
+        async function getDialogLabels(name) {
+            let metadataStr = traces.find(item => item.rootSpan.name === name).rootSpan.metadata;
+            let metadata = JSON.parse(metadataStr)
+            let labels = JSON.parse(metadata.optional_labels)
 
             metadata._labels = labels
             testCaseId = metadata.test_case_id
 
             let resp = await fetch(`${SERVICE_HOST}/jobRecords?id=${testCaseId}`).then(response => response.json());
             dialogLabels = resp[0].metadatas ? resp[0].metadatas.human_labels : metadata._labels
-
-            displaySelectedLabels($tdCloneNode, dialogLabels);
-            $tdCloneNode.classList.add(tampermonkeyTd)
-            $tr.appendChild($tdCloneNode)
-
-            $tbody.addEventListener('click', showDialog, { capture: true })
+            return dialogLabels
         }
 
         async function showDialog(e) {
-            var el = e.target
-            var isTampermonkeyTd = (element) => element.classList.contains(tampermonkeyTd)
+            let el = e.target
+            let isTampermonkeyTd = (element) => element.classList.contains(tampermonkeyTd)
             if (!isTampermonkeyTd(el)) {
                 while (el.tagName !== 'TD') {
                     el = el.parentNode
@@ -109,6 +179,8 @@
                 let top = rect.top + window.pageYOffset
 
                 $curTbodyTd = el
+                let name = $curTbodyTd.parentElement.querySelector("td:nth-child(2)").textContent
+                dialogLabels = await getDialogLabels(name)
                 createDialog(dialogLabels, left - 100, top + 60);
             }
         }
@@ -126,17 +198,15 @@
                     data-is-open="true"
                 >
                     <div style="min-width: 176px">
-                    <div class="ac-view"
-                        style="padding-top: var(--ac-global-dimension-size-50);padding-bottom: var(--ac-global-dimension-size-50);"
-                    >
+                      <div class="ac-view" style="padding: 4px 0">
                         <ul>
-                        ${dialogLabels.map(item => create$li(item.label, item.selected)).join('')}
+                          ${dialogLabels.map(item => create$li(item.label, item.selected)).join('')}
                         </ul>
-                        <div style="padding-bottom: 8px; border-bottom: 1px solid var(--ac-global-border-color-default);">
-                        <input id="customInput" placeholder="Press Enter to add" />
+                        <div style="padding-bottom: 8px; border-bottom: 1px solid #6a6a6a">
+                          <input id="customInput" placeholder="Press Enter to add" />
                         </div>
                         <button id="submitBtn" style="float:right;margin: 6px 0;cursor: pointer">提交</button>
-                    </div>
+                      </div>
                     </div>
                 </div>
             `
@@ -151,7 +221,7 @@
                 if (e.target.id === 'customInput' && (e.key === 'Enter' || e.keyCode === 13)) {
                     let value = e.target.value.trim()
                     if (value === '') return;
-                    var $ul = document.createElement('ul')
+                    let $ul = document.createElement('ul')
                     dialogLabels.push({ label: value, selected: true })
                     $ul.innerHTML = create$li(value, true)
                     $dialog.querySelector('ul').append($ul.firstElementChild)
@@ -162,14 +232,14 @@
 
             async function onSubmit(e) {
                 if (e.target.id === 'submitBtn') {
-                    var $list = $dialog.querySelectorAll('ul > li')
+                    let $list = $dialog.querySelectorAll('ul > li')
                     for (let i = 0, len = $list.length; i < len; i++) {
                         dialogLabels[i].selected = $list[i].querySelector('input').checked
                     }
 
-                    var headers = new Headers();
+                    let headers = new Headers();
                     headers.append("Content-Type", "application/json");
-                    var requestOptions = {
+                    let requestOptions = {
                         method: 'POST',
                         headers,
                         body: JSON.stringify({ human_labels: dialogLabels }),
@@ -212,7 +282,7 @@
             }
             for (let i = 0, len = dialogLabels.length; i < len; i++) {
                 if (dialogLabels[i].selected) {
-                    var $label = $table.querySelector('.ac-label').cloneNode()
+                    let $label = $table.querySelector('.ac-label').cloneNode()
                     $label.innerText = dialogLabels[i].label
                     $label.style.margin = '2px'
                     $td.append($label)
