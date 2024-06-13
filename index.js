@@ -14,6 +14,7 @@
     let $tbody = $table.querySelector('tbody')
     let $curTbodyTd = null
     let dialogLabels = null
+    const IS_OLD_CASE = 'IS_OLD_CASE'
 
     appendColumn2thead('labels')
     appendColumn2tbody(traces)
@@ -47,7 +48,7 @@
                 }
 
                 console.log('sleep 1s')
-                await sleep(1)
+                await sleep(2)
                 $table = document.querySelector('table')
                 $tbody = $table.querySelector('tbody')
                 appendColumn2tbody(traces)
@@ -128,18 +129,12 @@
             let $tr = $tbodyTrAll[i]
             let $tdCloneNode = $tr.querySelector('td:nth-child(1)').cloneNode(false)
             let name = $tr.querySelector('td:nth-child(2)').innerText
-            /*let metadataStr = traces.find(item => item.rootSpan.name === name).rootSpan.metadata;
-            let metadata = JSON.parse(metadataStr)
-            let labels = JSON.parse(metadata.optional_labels)
-
-            metadata._labels = labels
-            testCaseId = metadata.test_case_id
-
-            let resp = await fetch(`${SERVICE_HOST}/jobRecords?id=${testCaseId}`).then(response => response.json());
-            debugger
-            dialogLabels = resp[0].metadatas ? resp[0].metadatas.human_labels : metadata._labels
-*/
+            
             dialogLabels = await getDialogLabels(name)
+            if (dialogLabels === IS_OLD_CASE) {
+                console.log(`[${IS_OLD_CASE}] Skip to render labels`)
+                return
+            }
             displaySelectedLabels($tdCloneNode, dialogLabels);
             $tdCloneNode.classList.add(tampermonkeyTd)
             if ($tr.querySelector('.' + tampermonkeyTd)) {
@@ -151,6 +146,9 @@
         async function getDialogLabels(name) {
             let metadataStr = traces.find(item => item.rootSpan.name === name).rootSpan.metadata;
             let metadata = JSON.parse(metadataStr)
+            if (!metadata || !metadata.optional_labels) {
+                return IS_OLD_CASE
+            }
             let labels = JSON.parse(metadata.optional_labels)
 
             metadata._labels = labels
