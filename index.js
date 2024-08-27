@@ -128,7 +128,7 @@
         for (let i = 0, rows = $tbodyTrAll.length; i < rows; i++) {
             let $tr = $tbodyTrAll[i]
             let $tdCloneNode = $tr.querySelector('td:nth-child(1)').cloneNode(false)
-            let name = $tr.querySelector('td:nth-child(2)').innerText
+            let name = $tr.querySelector('td:nth-child(3)').innerText
             
             dialogLabels = await getDialogLabels(name)
             if (dialogLabels === IS_OLD_CASE) {
