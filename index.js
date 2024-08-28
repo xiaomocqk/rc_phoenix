@@ -203,7 +203,7 @@
                         <div style="padding-bottom: 8px; border-bottom: 1px solid #6a6a6a">
                           <input id="customInput" placeholder="Press Enter to add" />
                         </div>
-                        <button id="submitBtn" style="float:right;margin: 6px 0;cursor: pointer">提交</button>
+                        <button id="submitBtn" style="float:right;margin: 6px 0;cursor: pointer">Submit</button>
                       </div>
                     </div>
                 </div>
