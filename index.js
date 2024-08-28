@@ -255,7 +255,7 @@
             function create$li(option, checked) {
                 return `
                     <li style="padding: 4px 0">
-                    <label>
+                    <label style="color: #fff">
                         <input type="checkbox" name="input_value" ${checked ? "checked" : ""}/>${option}
                     </label>
                     </li>`
