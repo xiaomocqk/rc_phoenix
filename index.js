@@ -177,7 +177,7 @@
                 let top = rect.top + window.pageYOffset
 
                 $curTbodyTd = el
-                let name = $curTbodyTd.parentElement.querySelector("td:nth-child(2)").textContent
+                let name = $curTbodyTd.parentElement.querySelector("td:nth-child(3)").textContent
                 dialogLabels = await getDialogLabels(name)
                 createDialog(dialogLabels, left - 100, top + 60);
             }
