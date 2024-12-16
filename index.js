@@ -157,7 +157,7 @@
 
             dialogLabels = await getDialogLabels(name)
             if (dialogLabels === IS_OLD_CASE) {
-                console.log(`[${IS_OLD_CASE}] Skip to render labels`)
+                console.log(`[${IS_OLD_CASE}] Skip to render labels, because it hasn't a "test_case_id" in metadata`)
                 return
             }
             displaySelectedLabels($tdCloneNode, dialogLabels);
@@ -171,7 +171,7 @@
         async function getDialogLabels(name) {
             let metadataStr = traces.find(item => item.rootSpan.name === name).rootSpan.metadata;
             let metadata = JSON.parse(metadataStr)
-            if (!metadata || !metadata.optional_labels) {
+            if (!metadata || !metadata.test_case_id) {
                 return IS_OLD_CASE
             }
             let labels = JSON.parse(metadata.optional_labels)
