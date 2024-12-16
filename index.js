@@ -1,14 +1,43 @@
 (async function () {
     'use strict';
 
-    let matches = window.location.pathname.match(/^\/projects\/([^?&/]+)/)
-    let projectId = matches ? matches[1] : ""
+    let projectId = getProjectId()
     let testCaseId = null;
     let tampermonkeyTd = "_tampermonkeyTd"
     let SERVICE_HOST = 'https://epn-xmn-lab.int.rclabenv.com'
+    let PROJECT_CHANGE_EVENT = 'projectchange'
+    let timeRangeKey2Day = {
+        "15m": {"text": "Last 15 Min", value: -1/24/4},
+        "1h": {"text": "Last Hour", value: -1/24},
+        "12h": {"text":"Last 12 Hours", value: -1/2},
+        "1d": {"text":"Last Day", value: -1},
+        "7d": {"text":"Last 7 Days", value: -7},
+        "30d": {"text":"Last Month", value: -30},
+        "all": {"text":"All Time", value: -Infinity},
+    }
+    let getLastDateRange = () => {
+        let lastNTimeRangeKey = '7d'
+        try {
+          lastNTimeRangeKey = JSON.parse(localStorage.getItem('arize-phoenix-preferences')).state.lastNTimeRangeKey
+        } catch(e) {
+          console.error('JOSN parse error', e)
+        }
+        return timeRangeKey2Day[lastNTimeRangeKey]
+    }
+    let getDateRangeByText = (text) => {
+      for (let key in timeRangeKey2Day) {
+          if (timeRangeKey2Day[key].text === text) {
+             return timeRangeKey2Day[key]
+          }
+      }
+    }
 
-    let rangDefault = getDateRange(-7)
-    let traces = await fetchGraphqlData(projectId, rangDefault.start, rangDefault.end);
+    function getProjectId() {
+        let matches = window.location.pathname.match(/^\/projects\/([^/]+$)/)
+        return matches ? matches[1] : ""
+    }
+
+    let rangDefault = getDateRange(getLastDateRange().value)
 
     let $table = await waitForTableTracesExisting(10)
     let $tbody = $table.querySelector('tbody')
@@ -16,17 +45,15 @@
     let dialogLabels = null
     const IS_OLD_CASE = 'IS_OLD_CASE'
 
-    appendColumn2thead('labels')
-    appendColumn2tbody(traces)
+    if (!!projectId) {
+        let traces = await fetchGraphqlData(projectId, rangDefault.start, rangDefault.end);
+        appendColumn2thead('labels')
+        appendColumn2tbody(traces)
+    }
     document.addEventListener('click', onDateRangeChange(), { capture: true })
 
     function onDateRangeChange() {
-        let dateRange = {
-            "Last Day": -1,
-            "Last 7 Days": -7,
-            "Last Month": -30
-        }
-        let currentDateRange = "Last 7 Days"
+        let currentDateRange = getLastDateRange().text
         return async function (e) {
             const $menu = document.querySelector('.ac-menu')
             if ($menu && $menu.contains(e.target)) {
@@ -34,20 +61,16 @@
                 while (!el.classList.contains('ac-menu-item')) {
                     el = el.parentNode
                 }
-                if (el.textContent === currentDateRange) {
+                if (el.textContent === currentDateRange.text) {
                     return
                 }
+                if (!getProjectId()) return
                 let selectedDateRangeText = el.textContent
-                currentDateRange = selectedDateRangeText
-                if (selectedDateRangeText === 'All Time') {
-                    let tomorrow = getDateRange(1).end
-                    traces = await fetchGraphqlData(projectId, '1970-12-31T16:00:00.000Z', tomorrow)
-                } else {
-                    const {start, end} = getDateRange(dateRange[selectedDateRangeText])
-                    traces = await fetchGraphqlData(projectId, start, end)
-                }
+                let newDateRange = getDateRangeByText(selectedDateRangeText)
+                const {start, end} = getDateRange(newDateRange.value)
+                let traces = await fetchGraphqlData(projectId, start, end)
 
-                console.log('sleep 1s')
+                console.log('sleep 2s')
                 await sleep(2)
                 $table = document.querySelector('table')
                 $tbody = $table.querySelector('tbody')
@@ -63,6 +86,9 @@
 
     function getDateRange(daysAgo) {
         const end = new Date();
+        if (daysAgo === -Infinity) {
+           return {start: '1970-12-31T16:00:00.000Z', end: end.toISOString()}
+        }
         const start = new Date(end.getTime() + (daysAgo * 24 * 60 * 60 * 1000));
         return {start: start.toISOString(), end: end.toISOString()}
     }
@@ -71,9 +97,8 @@
         let headers = new Headers();
         headers.append("Content-Type", "application/json");
         let graphql = JSON.stringify({
-            query: "query ProjectPageQuery( $id: GlobalID!  $timeRange: TimeRange!) {  project: node(id: $id) {    __typename    ...SpansTable_spans    ...TracesTable_spans    ...ProjectPageHeader_stats    ...StreamToggle_data    __isNode: __typename    id  }}fragment ProjectPageHeader_stats on Project {  traceCount(timeRange: $timeRange)  tokenCountTotal(timeRange: $timeRange)  latencyMsP50: latencyMsQuantile(probability: 0.5, timeRange: $timeRange)  latencyMsP99: latencyMsQuantile(probability: 0.99, timeRange: $timeRange)  spanEvaluationNames  documentEvaluationNames  id}fragment SpanColumnSelector_evaluations on Project {  spanEvaluationNames}fragment SpansTable_spans on Project {  ...SpanColumnSelector_evaluations  spans(first: 100, sort: {col: startTime, dir: desc}, timeRange: $timeRange) {    edges {      span: node {        spanKind        name        metadata        statusCode        startTime        latencyMs        tokenCountTotal        tokenCountPrompt        tokenCountCompletion        context {          spanId          traceId        }        input {          value: truncatedValue        }        output {          value: truncatedValue        }        spanEvaluations {          name          label          score        }        documentRetrievalMetrics {          evaluationName          ndcg          precision          hit        }      }      cursor      node {        __typename      }    }    pageInfo {      endCursor      hasNextPage    }  }  id}fragment StreamToggle_data on Project {  streamingLastUpdatedAt  id}fragment TracesTable_spans on Project {  ...SpanColumnSelector_evaluations  rootSpans: spans(first: 100, sort: {col: startTime, dir: desc}, rootSpansOnly: true, timeRange: $timeRange) {    edges {      rootSpan: node {        spanKind        name        metadata        statusCode: propagatedStatusCode        startTime        latencyMs        cumulativeTokenCountTotal        cumulativeTokenCountPrompt        cumulativeTokenCountCompletion        parentId        input {          value: truncatedValue        }        output {          value: truncatedValue        }        context {          spanId          traceId        }        spanEvaluations {          name          label          score        }        documentRetrievalMetrics {          evaluationName          ndcg          precision          hit        }        descendants {          spanKind          name          statusCode: propagatedStatusCode          startTime          latencyMs          parentId          cumulativeTokenCountTotal: tokenCountTotal          cumulativeTokenCountPrompt: tokenCountPrompt          cumulativeTokenCountCompletion: tokenCountCompletion          input {            value          }          output {            value          }          context {            spanId            traceId          }          spanEvaluations {            name            label            score          }          documentRetrievalMetrics {            evaluationName            ndcg            precision            hit          }        }      }      cursor      node {        __typename      }    }    pageInfo {      endCursor      hasNextPage    }  }  id}",
-            variables: { "id": projectId, "timeRange": { start, end } }
-        })
+            "query":"query ProjectPageQuery(\n  $id: GlobalID!\n  $timeRange: TimeRange!\n) {\n  project: node(id: $id) {\n    __typename\n    ...TracesTable_spans\n    ...ProjectPageHeader_stats\n    ...StreamToggle_data\n    __isNode: __typename\n    id\n  }\n}\n\nfragment ProjectPageHeader_stats on Project {\n  traceCount(timeRange: $timeRange)\n  tokenCountTotal(timeRange: $timeRange)\n  latencyMsP50: latencyMsQuantile(probability: 0.5, timeRange: $timeRange)\n  latencyMsP99: latencyMsQuantile(probability: 0.99, timeRange: $timeRange)\n  spanAnnotationNames\n  documentEvaluationNames\n  id\n}\n\nfragment SpanColumnSelector_annotations on Project {\n  spanAnnotationNames\n}\n\nfragment StreamToggle_data on Project {\n  streamingLastUpdatedAt\n  id\n}\n\nfragment TracesTable_spans on Project {\n  name\n  ...SpanColumnSelector_annotations\n  rootSpans: spans(first: 50, sort: {col: startTime, dir: desc}, rootSpansOnly: true, timeRange: $timeRange) {\n    edges {\n      rootSpan: node {\n        id\n        spanKind\n        name\n        metadata\n        statusCode: propagatedStatusCode\n        startTime\n        latencyMs\n        cumulativeTokenCountTotal\n        cumulativeTokenCountPrompt\n        cumulativeTokenCountCompletion\n        parentId\n        input {\n          value: truncatedValue\n        }\n        output {\n          value: truncatedValue\n        }\n        context {\n          spanId\n          traceId\n        }\n        spanAnnotations {\n          name\n          label\n          score\n          annotatorKind\n        }\n        documentRetrievalMetrics {\n          evaluationName\n          ndcg\n          precision\n          hit\n        }\n        descendants {\n          id\n          spanKind\n          name\n          statusCode: propagatedStatusCode\n          startTime\n          latencyMs\n          parentId\n          cumulativeTokenCountTotal: tokenCountTotal\n          cumulativeTokenCountPrompt: tokenCountPrompt\n          cumulativeTokenCountCompletion: tokenCountCompletion\n          input {\n            value: truncatedValue\n          }\n          output {\n            value: truncatedValue\n          }\n          context {\n            spanId\n            traceId\n          }\n          spanAnnotations {\n            name\n            label\n            score\n            annotatorKind\n          }\n          documentRetrievalMetrics {\n            evaluationName\n            ndcg\n            precision\n            hit\n          }\n        }\n      }\n      cursor\n      node {\n        __typename\n      }\n    }\n    pageInfo {\n      endCursor\n      hasNextPage\n    }\n  }\n  id\n}\n",
+            "variables":{"id":projectId,"timeRange":{start, end}}})
         let requestOptions = {
             method: 'POST',
             headers,
@@ -129,7 +154,7 @@
             let $tr = $tbodyTrAll[i]
             let $tdCloneNode = $tr.querySelector('td:nth-child(1)').cloneNode(false)
             let name = $tr.querySelector('td:nth-child(3)').innerText
-            
+
             dialogLabels = await getDialogLabels(name)
             if (dialogLabels === IS_OLD_CASE) {
                 console.log(`[${IS_OLD_CASE}] Skip to render labels`)
