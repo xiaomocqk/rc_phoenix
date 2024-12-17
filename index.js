@@ -180,6 +180,7 @@
             testCaseId = metadata.test_case_id
 
             let resp = await fetch(`${SERVICE_HOST}/jobRecords?id=${testCaseId}`).then(response => response.json());
+            if (resp.length === 0) return [];
             dialogLabels = resp[0].metadatas ? resp[0].metadatas.human_labels : metadata._labels
             return dialogLabels
         }
