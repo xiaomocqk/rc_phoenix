@@ -174,7 +174,7 @@
             if (!metadata || !metadata.test_case_id) {
                 return IS_OLD_CASE
             }
-            let labels = JSON.parse(metadata.optional_labels)
+            let labels = JSON.parse(metadata.optional_labels || '[]')
 
             metadata._labels = labels
             testCaseId = metadata.test_case_id
